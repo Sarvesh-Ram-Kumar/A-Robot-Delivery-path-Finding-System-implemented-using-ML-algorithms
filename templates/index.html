@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Warehouse Simulator</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin-top: 40px;
+    }
+
+    #grid {
+      display: grid;
+      grid-template-columns: repeat(10, 50px);
+      grid-template-rows: repeat(10, 50px);
+      gap: 2px;
+    }
+
+    .cell {
+      width: 50px;
+      height: 50px;
+      border: 1px solid #ccc;
+      background-size: cover, contain;
+      background-position: center, center;
+      background-repeat: no-repeat, no-repeat;
+    }
+
+    #controls {
+      margin-top: 20px;
+      display: flex;
+      gap: 10px;
+    }
+
+    button {
+      padding: 6px 12px;
+    }
+  </style>
+</head>
+<body>
+
+  <h2>Warehouse Grid Simulator</h2>
+
+  <div id="controls">
+    <button onclick="setMode('wall')">Wall</button>
+    <button onclick="setMode('package')">Package</button>
+    <button onclick="setMode('shelf')">Shelf</button>
+    <button onclick="setMode('start')">Robot</button>
+    <button onclick="startTraining()">Start Training</button>
+  </div>
+
+  <div id="grid"></div>
+  <h3>Grid Matrix</h3>
+  <div id="matrix-output"
+      style="white-space: pre; font-family: monospace; background: #f0f0f0; padding: 10px; max-width: 600px; overflow-x: auto;">
+  </div>
+
+  <script>
+    const gridSize = 10;
+    const grid = document.getElementById('grid');
+    let mode = 'wall';
+    const gridMatrix = Array.from({ length: gridSize }, () => Array(gridSize).fill(0));
+
+    // Use Flask static file paths
+    const icons = {
+      wall: '../static/images/wall.png',
+      package: '../static/images/package.png',
+      shelf: '../static/images/shelf.png',
+      start: '../static/images/robot.png',
+      robot: '../static/images/robot.png',
+      floor: '../static/images/floor.jpeg'
+    };
+
+    function setMode(newMode) {
+      mode = newMode;
+    }
+
+    // Create cells
+    for (let i = 0; i < gridSize * gridSize; i++) {
+      const cell = document.createElement('div');
+      cell.classList.add('cell');
+      const row = Math.floor(i / gridSize);
+      const col = i % gridSize;
+      cell.dataset.row = row;
+      cell.dataset.col = col;
+
+      // Default floor image
+      cell.style.backgroundImage = `url('${icons.floor}')`;
+
+      cell.addEventListener('click', () => {
+        const r = parseInt(cell.dataset.row);
+        const c = parseInt(cell.dataset.col);
+
+        if (mode === 'start') {
+          // Remove old robot if any
+          document.querySelectorAll('.cell').forEach(cel => {
+            if (cel.style.backgroundImage.includes('robot.png')) {
+              cel.style.backgroundImage = `url('${icons.floor}')`;
+              const ri = parseInt(cel.dataset.row);
+              const ci = parseInt(cel.dataset.col);
+              gridMatrix[ri][ci] = 0;
+            }
+          });
+        }
+
+        if (mode === 'wall') {
+          gridMatrix[r][c] = 1;
+          cell.style.backgroundImage = `url('${icons.wall}'), url('${icons.floor}')`;
+        } else if (mode === 'package') {
+          gridMatrix[r][c] = 2;
+          cell.style.backgroundImage = `url('${icons.package}'), url('${icons.floor}')`;
+        } else if (mode === 'shelf') {
+          gridMatrix[r][c] = 3;
+          cell.style.backgroundImage = `url('${icons.shelf}'), url('${icons.floor}')`;
+        } else if (mode === 'start') {
+          gridMatrix[r][c] = 4;
+          cell.style.backgroundImage = `url('${icons.start}'), url('${icons.floor}')`;
+        }
+      });
+
+      grid.appendChild(cell);
+    }
+
+    function startTraining() {
+      console.log("Current Grid Matrix:", gridMatrix);
+
+      let matrixDiv = document.getElementById('matrix-output');
+      matrixDiv.innerHTML = `<pre>${JSON.stringify(gridMatrix, null, 2)}</pre>`;
+
+      fetch('/train', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ grid: gridMatrix })
+      })
+      .then(res => res.json())
+      .then(data => {
+        animatePath(data.path);
+      })
+      .catch(err => {
+        console.error("Error fetching training data:", err);
+      });
+    }
+
+    function animatePath(path) {
+      let i = 0;
+      const delay = 300;
+
+      function step() {
+        if (i >= path.length) return;
+
+        const [x, y] = path[i];
+        const cellIndex = x * gridSize + y;
+        const cell = grid.children[cellIndex];
+
+        if (!cell.style.backgroundImage.includes('wall')) {
+          cell.style.backgroundImage = `url('${icons.robot}'), url('${icons.floor}')`;
+        }
+
+        if (i > 0) {
+          const [px, py] = path[i - 1];
+          const prev = grid.children[px * gridSize + py];
+          const prevType = gridMatrix[px][py];
+          if (prevType !== 1) {
+            prev.style.backgroundImage = getImageByValue(prevType);
+          }
+        }
+
+        i++;
+        setTimeout(step, delay);
+      }
+
+      function getImageByValue(value) {
+        if (value === 2) return `url('${icons.package}'), url('${icons.floor}')`;
+        if (value === 3) return `url('${icons.shelf}'), url('${icons.floor}')`;
+        if (value === 4) return `url('${icons.start}'), url('${icons.floor}')`;
+        return `url('${icons.floor}')`;
+      }
+
+      step();
+    }
+  </script>
+
+</body>
+</html>
