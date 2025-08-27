@@ -154,15 +154,26 @@
         const cellIndex = x * gridSize + y;
         const cell = grid.children[cellIndex];
 
-        if (!cell.style.backgroundImage.includes('wall')) {
+        const cellType = gridMatrix[x][y];
+
+        // Overlay tick if it's a shelf or package
+        if (cellType === 2 || cellType === 3) {
+          cell.style.backgroundImage = `url('${icons.robot}'), url('../static/images/tick.png'), url('${icons.floor}')`;
+        } else if (cellType === 4) {
+          cell.style.backgroundImage = `url('${icons.robot}'), url('${icons.floor}')`;
+        } else if (cellType === 1) {
+          // Wall stays as is
+          cell.style.backgroundImage = `url('${icons.wall}'), url('${icons.floor}')`;
+        } else {
           cell.style.backgroundImage = `url('${icons.robot}'), url('${icons.floor}')`;
         }
 
+        // Reset previous cell to its original type
         if (i > 0) {
           const [px, py] = path[i - 1];
           const prev = grid.children[px * gridSize + py];
           const prevType = gridMatrix[px][py];
-          if (prevType !== 1) {
+          if (prevType !== 1) { // not a wall
             prev.style.backgroundImage = getImageByValue(prevType);
           }
         }
@@ -175,6 +186,7 @@
         if (value === 2) return `url('${icons.package}'), url('${icons.floor}')`;
         if (value === 3) return `url('${icons.shelf}'), url('${icons.floor}')`;
         if (value === 4) return `url('${icons.start}'), url('${icons.floor}')`;
+        if (value === 1) return `url('${icons.wall}'), url('${icons.floor}')`;
         return `url('${icons.floor}')`;
       }
 
