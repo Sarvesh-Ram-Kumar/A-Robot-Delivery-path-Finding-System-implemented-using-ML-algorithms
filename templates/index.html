@@ -5,37 +5,114 @@
   <title>Warehouse Simulator</title>
   <style>
     body {
-      font-family: sans-serif;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      margin-top: 40px;
+      font-family: "Segoe UI", Tahoma, sans-serif;
+      background: #f5f7fa;
+      margin: 0;
+      padding: 20px;
+      color: #333;
     }
 
+    h2 {
+      text-align: center;
+      margin-bottom: 20px;
+      font-size: 26px;
+      color: #2c3e50;
+    }
+
+    #controls {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 25px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    button {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 6px;
+      background: #3498db;
+      color: #fff;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background 0.2s;
+    }
+    button:hover {
+      background: #2980b9;
+    }
+
+    #main {
+      display: grid;
+      grid-template-columns: 45% 35% 15%;
+      gap: 20px;
+      align-items: flex-start;
+    }
+
+    /* GRID PANEL */
     #grid {
       display: grid;
       grid-template-columns: repeat(10, 50px);
       grid-template-rows: repeat(10, 50px);
       gap: 2px;
+      justify-content: center;
+      background: #eaeaea;
+      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid #ddd;
     }
 
     .cell {
       width: 50px;
-      height: 50px;
-      border: 1px solid #ccc;
+      height:50px;
+      border: 1px solid #ddd;
       background-size: cover, contain;
       background-position: center, center;
       background-repeat: no-repeat, no-repeat;
+      border-radius: 4px;
     }
 
-    #controls {
-      margin-top: 20px;
-      display: flex;
-      gap: 10px;
+    /* INFO + MATRIX STYLING */
+    h3 {
+      margin: 12px 0 6px;
+      font-size: 16px;
+      color: #34495e;
+      border-bottom: 1px solid #ddd;
+      padding-bottom: 4px;
     }
 
-    button {
-      padding: 6px 12px;
+    .box {
+      background: #fff;
+      padding: 10px;
+      font-size: 13px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      max-height: 180px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+
+    #matrix-output, #path-output {
+      font-family: monospace;
+      background: #fff;
+      padding: 8px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      font-size: 12px;
+      line-height: 1.4;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+
+    #path-output {
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    #charge-level {
+      font-size: 16px;
+      font-weight: bold;
+      color: #27ae60;
     }
   </style>
 </head>
@@ -48,36 +125,57 @@
     <button onclick="setMode('package')">Package</button>
     <button onclick="setMode('shelf')">Shelf</button>
     <button onclick="setMode('start')">Robot</button>
+    <button onclick="setMode('trap')">Broken Floor</button>
+    <button onclick="setMode('charger')">Charger</button>
     <button onclick="startTraining()">Start Training</button>
+    <button onclick="replayPath()">Replay</button>
   </div>
 
-  <div id="grid"></div>
-  <h3>Grid Matrix</h3>
-  <div id="matrix-output"
-      style="white-space: pre; font-family: monospace; background: #f0f0f0; padding: 10px; max-width: 600px; overflow-x: auto;">
+  <div id="main">
+    <!-- Left: Grid -->
+    <div id="grid"></div>
+
+    <!-- Middle: Info -->
+    <div>
+      <h3>Charge Level</h3>
+      <p id="charge-level">100%</p>
+
+      <h3>Delivery Log</h3>
+      <div id="delivery-log" class="box"></div>
+
+      <h3>Final Path</h3>
+      <div id="path-output"></div>
+    </div>
+
+    <!-- Right: Matrix -->
+    <div>
+      <h3>Grid Matrix</h3>
+      <div id="matrix-output"></div>
+    </div>
   </div>
 
   <script>
     const gridSize = 10;
     const grid = document.getElementById('grid');
     let mode = 'wall';
+    let lastPath = [];
     const gridMatrix = Array.from({ length: gridSize }, () => Array(gridSize).fill(0));
 
-    // Use Flask static file paths
     const icons = {
       wall: '../static/images/wall.png',
       package: '../static/images/package.png',
       shelf: '../static/images/shelf.png',
       start: '../static/images/robot.png',
       robot: '../static/images/robot.png',
-      floor: '../static/images/floor.jpeg'
+      broken: '../static/images/brokenfloor.jpg',
+      charger: '../static/images/charger.jpeg',
+      floor: '../static/images/floor.jpeg',
+      tick: '../static/images/tick.png'
     };
 
-    function setMode(newMode) {
-      mode = newMode;
-    }
+    function setMode(newMode) { mode = newMode; }
 
-    // Create cells
+    // build grid
     for (let i = 0; i < gridSize * gridSize; i++) {
       const cell = document.createElement('div');
       cell.classList.add('cell');
@@ -85,8 +183,6 @@
       const col = i % gridSize;
       cell.dataset.row = row;
       cell.dataset.col = col;
-
-      // Default floor image
       cell.style.backgroundImage = `url('${icons.floor}')`;
 
       cell.addEventListener('click', () => {
@@ -94,7 +190,6 @@
         const c = parseInt(cell.dataset.col);
 
         if (mode === 'start') {
-          // Remove old robot if any
           document.querySelectorAll('.cell').forEach(cel => {
             if (cel.style.backgroundImage.includes('robot.png')) {
               cel.style.backgroundImage = `url('${icons.floor}')`;
@@ -117,6 +212,12 @@
         } else if (mode === 'start') {
           gridMatrix[r][c] = 4;
           cell.style.backgroundImage = `url('${icons.start}'), url('${icons.floor}')`;
+        } else if (mode === 'charger') {
+          gridMatrix[r][c] = 5;
+          cell.style.backgroundImage = `url('${icons.charger}'), url('${icons.floor}')`;
+        } else if (mode === 'trap') {
+          gridMatrix[r][c] = 6;
+          cell.style.backgroundImage = `url('${icons.broken}')`;
         }
       });
 
@@ -124,10 +225,7 @@
     }
 
     function startTraining() {
-      console.log("Current Grid Matrix:", gridMatrix);
-
-      let matrixDiv = document.getElementById('matrix-output');
-      matrixDiv.innerHTML = `<pre>${JSON.stringify(gridMatrix, null, 2)}</pre>`;
+      renderMatrix();
 
       fetch('/train', {
         method: 'POST',
@@ -136,11 +234,52 @@
       })
       .then(res => res.json())
       .then(data => {
+        // update charge level correctly
+        let chargeElement = document.getElementById("charge-level");
+        if (data.final_charge !== undefined) {
+          chargeElement.innerText = data.final_charge + "%";
+        }
+
+        document.getElementById("delivery-log").innerText = data.delivery_log.join("\n");
+
+        renderPath(data.path);
+        lastPath=data.path;
         animatePath(data.path);
       })
       .catch(err => {
         console.error("Error fetching training data:", err);
       });
+    }
+
+    function renderMatrix() {
+      let out = "";
+      for (let r = 0; r < gridSize; r++) {
+        out += gridMatrix[r].join(" ") + "\n";
+      }
+      document.getElementById("matrix-output").innerText = out;
+    }
+
+    function renderPath(path) {
+      let formatted = "";
+      for (let i = 0; i < path.length; i++) {
+        formatted += `[${path[i][0]}, ${path[i][1]}] `;
+        if ((i + 1) % 10 === 0) formatted += "\n";
+      }
+      document.getElementById("path-output").innerText = formatted;
+    }
+
+    function placeTick(x, y) {
+      const cellIndex = x * gridSize + y;
+      const cell = grid.children[cellIndex];
+      cell.style.backgroundImage = `url('${icons.tick}'), ${cell.style.backgroundImage}`;
+    }
+
+    function replayPath() {
+      if (lastPath.length === 0) {
+        alert("No path to replay yet!");
+        return;
+      }
+      animatePath(lastPath);
     }
 
     function animatePath(path) {
@@ -153,29 +292,19 @@
         const [x, y] = path[i];
         const cellIndex = x * gridSize + y;
         const cell = grid.children[cellIndex];
-
         const cellType = gridMatrix[x][y];
+        cell.style.backgroundImage = `url('${icons.robot}'), ${getImageByValue(cellType)}`;
 
-        // Overlay tick if it's a shelf or package
+        // ✅ Place tick when robot arrives on package or shelf
         if (cellType === 2 || cellType === 3) {
-          cell.style.backgroundImage = `url('${icons.robot}'), url('../static/images/tick.png'), url('${icons.floor}')`;
-        } else if (cellType === 4) {
-          cell.style.backgroundImage = `url('${icons.robot}'), url('${icons.floor}')`;
-        } else if (cellType === 1) {
-          // Wall stays as is
-          cell.style.backgroundImage = `url('${icons.wall}'), url('${icons.floor}')`;
-        } else {
-          cell.style.backgroundImage = `url('${icons.robot}'), url('${icons.floor}')`;
+          placeTick(x, y);
         }
 
-        // Reset previous cell to its original type
         if (i > 0) {
           const [px, py] = path[i - 1];
           const prev = grid.children[px * gridSize + py];
           const prevType = gridMatrix[px][py];
-          if (prevType !== 1) { // not a wall
-            prev.style.backgroundImage = getImageByValue(prevType);
-          }
+          prev.style.backgroundImage = getImageByValue(prevType);
         }
 
         i++;
@@ -186,13 +315,14 @@
         if (value === 2) return `url('${icons.package}'), url('${icons.floor}')`;
         if (value === 3) return `url('${icons.shelf}'), url('${icons.floor}')`;
         if (value === 4) return `url('${icons.start}'), url('${icons.floor}')`;
+        if (value === 5) return `url('${icons.charger}'), url('${icons.floor}')`;
         if (value === 1) return `url('${icons.wall}'), url('${icons.floor}')`;
         return `url('${icons.floor}')`;
       }
 
       step();
     }
-  </script>
 
+  </script>
 </body>
 </html>
