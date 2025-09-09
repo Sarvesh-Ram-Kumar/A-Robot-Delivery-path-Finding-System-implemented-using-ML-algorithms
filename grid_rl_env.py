@@ -76,14 +76,14 @@ class GridEnv:
         if cell_value == 5:
             level = self._charge_level()
             if level == "LOW":
-                reward += 200
+                reward += 300
             elif level == "MED":
-                reward += 50
+                reward += 100
             self.charge = 100
 
         # --- Pick up package ---
         if not self.has_package and cell_value == 2:
-            reward += 200
+            reward += 400
             self.has_package = True
             self.last_pickup = action
             self.pickup_pos = action
@@ -94,7 +94,7 @@ class GridEnv:
         elif self.has_package and cell_value == 3:
             reward += 500
             optimal = manhattan(self.pickup_pos, action) if self.pickup_pos else 0
-            if self.steps_since_pickup > optimal + 3:
+            if self.steps_since_pickup > optimal + 2:
                 reward -= 450
 
             self.charge = max(0, self.charge - self.steps_since_pickup * 3)
@@ -110,7 +110,7 @@ class GridEnv:
             self.packages_left -= 1
 
             if self.packages_left == 0:
-                reward += 8000
+                reward += 40000
                 done = True
 
         # Passing over another package while carrying
@@ -120,16 +120,16 @@ class GridEnv:
         # Step counter
         if self.has_package:
             self.steps_since_pickup += 1
-            if self.steps_since_pickup > 50:  # 🚨 limit
+            if self.steps_since_pickup > 30:  # 🚨 limit
                 reward -= 1000
                 done = True
 
         if cell_value == 6:
-            reward -= 5000
+            reward -= 10000
             done = True
         
         if self.charge <= 0:
-            reward -= 500
+            reward -= 10000
             done = True
 
         return (self.pos, self.has_package, self.packages_left, self._charge_level()), reward, done
@@ -138,7 +138,7 @@ class GridEnv:
 
 
 # ---------- Q-learning ----------
-def train_agent(env, episodes=10000, alpha=0.12, gamma=0.96,
+def train_agent(env, episodes=20000, alpha=0.12, gamma=0.96,
                 epsilon_start=0.8, epsilon_min=0.05, epsilon_decay=0.970, max_steps=20000):
 
     q_table = {}  # key: (state, action) -> float
@@ -159,14 +159,22 @@ def train_agent(env, episodes=10000, alpha=0.12, gamma=0.96,
             if not actions:
                 break
 
-            # ε-greedy
-            if random.random() < epsilon:
+            # ----------- Exploration strategy -----------
+            if random.random() < 0.05:  # 🚨 5% chance random direction exploration
+                dx, dy = random.choice([(-1,0),(1,0),(0,-1),(0,1)])
+                nx, ny = state[0][0] + dx, state[0][1] + dy
+                if 0 <= nx < env.rows and 0 <= ny < env.cols and env.grid[nx][ny] != 1:
+                    action = (nx, ny)
+                else:
+                    action = random.choice(actions)  # fallback if invalid
+            elif random.random() < epsilon:  # ε-greedy
                 action = random.choice(actions)
-            else:
+            else:  # choose best Q-value
                 qs = [get_q(state, a) for a in actions]
                 max_q = max(qs)
                 best_actions = [a for a, qv in zip(actions, qs) if qv == max_q]
                 action = random.choice(best_actions)
+            # --------------------------------------------
 
             next_state, reward, done = env.step(action, None, prev_pos)
             visited.add(action)
@@ -192,6 +200,7 @@ def train_agent(env, episodes=10000, alpha=0.12, gamma=0.96,
     for log in delivery_log:
         print(" -", log)
     return path, q_table, delivery_log
+
 
 
 # ---------- Greedy reconstruction ----------
